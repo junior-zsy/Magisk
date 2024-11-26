@@ -1,6 +1,7 @@
 name: Build Magisk
 
-on:
+on: 
+  workflow_dispatch:  # 添加这行以支持手动触发
   push:
     branches: [ "master" ]
   pull_request:
