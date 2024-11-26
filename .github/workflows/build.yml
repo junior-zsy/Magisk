@@ -1,7 +1,7 @@
 name: Build Magisk
 
 on: 
-  workflow_dispatch:  # 添加这行以支持手动触发
+  workflow_dispatch:
   push:
     branches: [ "master" ]
   pull_request:
@@ -24,10 +24,16 @@ jobs:
         
     - name: Setup Android SDK
       uses: android-actions/setup-android@v2
+      
+    - name: Setup Android NDK
+      run: |
+        sdkmanager --install "ndk;25.2.9519653"
+        echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> local.properties
         
     - name: Build Magisk
       run: |
-        echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
+        echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+        echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> local.properties
         ./gradlew clean
         ./gradlew debug
         
