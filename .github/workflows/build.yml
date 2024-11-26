@@ -22,20 +22,44 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v2
-      
-    - name: Setup Android NDK
+    - name: Setup Android SDK and NDK
       run: |
-        sdkmanager --install "ndk;25.2.9519653"
-        echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> local.properties
+        # 安装 SDK 命令行工具
+        wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+        unzip commandlinetools-linux-9477386_latest.zip
+        mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools/latest
+        mv cmdline-tools/* ${ANDROID_SDK_ROOT}/cmdline-tools/latest/
         
-    - name: Build Magisk
+        # 接受许可
+        yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses
+        
+        # 安装必要的 SDK 组件
+        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --install \
+          "platform-tools" \
+          "platforms;android-33" \
+          "build-tools;33.0.2" \
+          "ndk;25.2.9519653"
+          
+        # 设置 NDK 环境变量
+        echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
+        
+    - name: Setup Build Environment
       run: |
-        echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-        echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> local.properties
-        ./gradlew clean
-        ./gradlew debug
+        # 创建 local.properties
+        echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
+        echo "ndk.dir=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> local.properties
+        
+        # 检查文件内容
+        cat local.properties
+        
+        # 检查 NDK 目录
+        ls -la ${ANDROID_SDK_ROOT}/ndk/25.2.9519653
+        
+    - name: Build Magisk with Debug Info
+      run: |
+        # 使用 --stacktrace 和 --info 获取更多调试信息
+        ./gradlew clean --stacktrace --info
+        ./gradlew debug --stacktrace --info
         
     - name: Upload Debug APK
       uses: actions/upload-artifact@v3
@@ -43,8 +67,18 @@ jobs:
         name: magisk-debug
         path: app/build/outputs/apk/debug/*.apk
         
-    - name: Upload Release APK
+    - name: Upload Release Files
       uses: actions/upload-artifact@v3
       with:
         name: magisk-files
-        path: out/*
+        path: |
+          out/*
+          app/build/outputs/apk/debug/*.apk
+
+    - name: List Build Outputs
+      if: always()
+      run: |
+        echo "=== APK Output Directory ==="
+        ls -R app/build/outputs/apk/debug/
+        echo "=== Out Directory ==="
+        ls -R out/ || true
