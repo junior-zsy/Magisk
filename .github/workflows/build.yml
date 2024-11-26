@@ -10,75 +10,97 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_NDK_VERSION: "25.2.9519653"
     
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout
+      uses: actions/checkout@v3
       with:
         submodules: recursive
+        fetch-depth: 0
         
-    - name: set up JDK 17
+    - name: Set up JDK 17
       uses: actions/setup-java@v3
       with:
         java-version: '17'
         distribution: 'temurin'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
         
-    - name: Setup Android SDK and NDK
-      run: |
-        # 安装 SDK 命令行工具
-        wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-        unzip commandlinetools-linux-9477386_latest.zip
-        mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools/latest
-        mv cmdline-tools/* ${ANDROID_SDK_ROOT}/cmdline-tools/latest/
-        
-        # 接受许可
-        yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses
-        
-        # 安装必要的 SDK 组件
-        ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --install \
-          "platform-tools" \
-          "platforms;android-33" \
-          "build-tools;33.0.2" \
-          "ndk;25.2.9519653"
+    - name: Cache Gradle Dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
           
-        # 设置 NDK 环境变量
-        echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
-        
-    - name: Setup Build Environment
+    - name: Install NDK
       run: |
-        # 创建 local.properties
-        echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
-        echo "ndk.dir=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> local.properties
+        echo "y" | sudo ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --install "ndk;$ANDROID_NDK_VERSION"
+        echo "ndk.dir=${ANDROID_HOME}/ndk/$ANDROID_NDK_VERSION" >> local.properties
+        echo "sdk.dir=${ANDROID_HOME}" >> local.properties
+        echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/$ANDROID_NDK_VERSION" >> $GITHUB_ENV
         
-        # 检查文件内容
+    - name: Verify Environment
+      run: |
+        echo "=== Environment Variables ==="
+        echo "ANDROID_HOME: $ANDROID_HOME"
+        echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
+        
+        echo "=== local.properties content ==="
         cat local.properties
         
-        # 检查 NDK 目录
-        ls -la ${ANDROID_SDK_ROOT}/ndk/25.2.9519653
+        echo "=== NDK Directory Check ==="
+        ls -la ${ANDROID_HOME}/ndk/$ANDROID_NDK_VERSION
         
-    - name: Build Magisk with Debug Info
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+        
+    - name: Build Debug
       run: |
-        # 使用 --stacktrace 和 --info 获取更多调试信息
-        ./gradlew clean --stacktrace --info
-        ./gradlew debug --stacktrace --info
+        ./gradlew clean
+        ./gradlew assembleDebug --stacktrace --info
+        
+    - name: Check Build Outputs
+      run: |
+        echo "=== Project Structure ==="
+        ls -R .
+        
+        echo "=== Specific Directories ==="
+        ls -la app/build/ || echo "app/build/ not found"
+        ls -la out/ || echo "out/ not found"
         
     - name: Upload Debug APK
+      if: success()
       uses: actions/upload-artifact@v3
       with:
         name: magisk-debug
-        path: app/build/outputs/apk/debug/*.apk
+        path: |
+          app/build/outputs/apk/debug/*.apk
+          app/build/outputs/**/*.apk
+        if-no-files-found: warn
         
-    - name: Upload Release Files
+    - name: Upload Build Outputs
+      if: success()
       uses: actions/upload-artifact@v3
       with:
         name: magisk-files
         path: |
           out/*
-          app/build/outputs/apk/debug/*.apk
+          app/build/outputs/**/*
+        if-no-files-found: warn
 
-    - name: List Build Outputs
-      if: always()
-      run: |
-        echo "=== APK Output Directory ==="
-        ls -R app/build/outputs/apk/debug/
-        echo "=== Out Directory ==="
-        ls -R out/ || true
+    - name: Upload Build Logs on Failure
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-logs
+        path: |
+          app/build/reports/
+          .gradle/daemon/
+          *.log
